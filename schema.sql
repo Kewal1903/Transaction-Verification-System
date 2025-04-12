@@ -39,3 +39,23 @@ CREATE TABLE Transactions (
     FOREIGN KEY (sender_wallet_id) REFERENCES Wallets(wallet_id) ON DELETE CASCADE,
     FOREIGN KEY (receiver_wallet_id) REFERENCES Wallets(wallet_id) ON DELETE CASCADE
 );
+
+CREATE TABLE TransactionLogs (
+    log_id INT AUTO_INCREMENT PRIMARY KEY,
+    transaction_id INT NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    details TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (transaction_id) REFERENCES Transactions(transaction_id) ON DELETE CASCADE
+);
+
+-- Create Alerts Table
+CREATE TABLE Alerts (
+    alert_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    title VARCHAR(100) NOT NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+);
