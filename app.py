@@ -356,14 +356,16 @@ elif choice == "Dashboard" and st.session_state.user_id:
     cursor.execute("SELECT name FROM Users WHERE user_id = %s", (st.session_state.user_id,))
     user = cursor.fetchone()
     
-    # Get user's wallet balance
+    # Get user's wallet balance - this is correct, it's just summing up the actual balances
     cursor.execute("SELECT SUM(balance) as total_balance FROM Wallets WHERE user_id = %s", 
                    (st.session_state.user_id,))
     balance = cursor.fetchone()['total_balance'] or 0
     
-    # Get user's transaction count
+    # Get user's transaction count - but we need to make sure we're not double counting
+    # Modified query to prevent double counting when both sender and receiver are the same user
     cursor.execute("""
-        SELECT COUNT(*) as tx_count FROM Transactions t
+        SELECT COUNT(DISTINCT t.transaction_id) as tx_count 
+        FROM Transactions t
         JOIN Wallets w ON t.sender_wallet_id = w.wallet_id OR t.receiver_wallet_id = w.wallet_id
         WHERE w.user_id = %s
     """, (st.session_state.user_id,))
@@ -389,13 +391,28 @@ elif choice == "Dashboard" and st.session_state.user_id:
         """ % tx_count, unsafe_allow_html=True)
     
     with col3:
-        # Get total sent
+        # Fix the total sent calculation to handle internal transfers
         cursor.execute("""
-            SELECT SUM(amount) as sent FROM Transactions t
-            JOIN Wallets w ON t.sender_wallet_id = w.wallet_id
-            WHERE w.user_id = %s
-        """, (st.session_state.user_id,))
-        sent = cursor.fetchone()['sent'] or 0
+            SELECT SUM(amount) as sent 
+            FROM Transactions t
+            JOIN Wallets ws ON t.sender_wallet_id = ws.wallet_id
+            LEFT JOIN Wallets wr ON t.receiver_wallet_id = wr.wallet_id
+            WHERE ws.user_id = %s AND (wr.user_id IS NULL OR wr.user_id != %s)
+        """, (st.session_state.user_id, st.session_state.user_id))
+        sent_external = cursor.fetchone()['sent'] or 0
+        
+        # Add internal transfers as a separate calculation to avoid double counting
+        cursor.execute("""
+            SELECT SUM(amount) as sent_internal
+            FROM Transactions t
+            JOIN Wallets ws ON t.sender_wallet_id = ws.wallet_id
+            JOIN Wallets wr ON t.receiver_wallet_id = wr.wallet_id
+            WHERE ws.user_id = %s AND wr.user_id = %s
+        """, (st.session_state.user_id, st.session_state.user_id))
+        sent_internal = cursor.fetchone()['sent_internal'] or 0
+        
+        # Total sent is external transfers plus internal transfers
+        sent = sent_external + sent_internal
         
         st.markdown("""
         <div class="card">
@@ -405,13 +422,19 @@ elif choice == "Dashboard" and st.session_state.user_id:
         """ % sent, unsafe_allow_html=True)
     
     with col4:
-        # Get total received
+        # Fix the total received calculation similarly
         cursor.execute("""
-            SELECT SUM(amount) as received FROM Transactions t
-            JOIN Wallets w ON t.receiver_wallet_id = w.wallet_id
-            WHERE w.user_id = %s
-        """, (st.session_state.user_id,))
-        received = cursor.fetchone()['received'] or 0
+            SELECT SUM(amount) as received 
+            FROM Transactions t
+            JOIN Wallets wr ON t.receiver_wallet_id = wr.wallet_id
+            LEFT JOIN Wallets ws ON t.sender_wallet_id = ws.wallet_id
+            WHERE wr.user_id = %s AND (ws.user_id IS NULL OR ws.user_id != %s)
+        """, (st.session_state.user_id, st.session_state.user_id))
+        received_external = cursor.fetchone()['received'] or 0
+        
+        # Use the same internal transfer amount calculated above
+        # Total received is external transfers plus internal transfers
+        received = received_external + sent_internal  # We use sent_internal since it's the same amount
         
         st.markdown("""
         <div class="card">
@@ -420,23 +443,25 @@ elif choice == "Dashboard" and st.session_state.user_id:
         </div>
         """ % received, unsafe_allow_html=True)
     
-    # Transaction history graph
-    st.markdown("""
-    <div class="card">
-        <h3>Transaction History</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Get transaction history data for chart
     cursor.execute("""
         SELECT DATE(t.timestamp) as date, 
-               SUM(CASE WHEN w.user_id = %s AND w.wallet_id = t.sender_wallet_id THEN -amount ELSE amount END) as net_flow
+               SUM(
+                   CASE 
+                       -- When user is sender but not receiver (outgoing)
+                       WHEN sw.user_id = %s AND rw.user_id != %s THEN -amount
+                       -- When user is receiver but not sender (incoming)  
+                       WHEN rw.user_id = %s AND sw.user_id != %s THEN amount
+                       -- When user is both sender and receiver (internal), don't count
+                       ELSE 0
+                   END
+               ) as net_flow
         FROM Transactions t
-        JOIN Wallets w ON t.sender_wallet_id = w.wallet_id OR t.receiver_wallet_id = w.wallet_id
-        WHERE w.user_id = %s
+        JOIN Wallets sw ON t.sender_wallet_id = sw.wallet_id
+        JOIN Wallets rw ON t.receiver_wallet_id = rw.wallet_id
+        WHERE sw.user_id = %s OR rw.user_id = %s
         GROUP BY DATE(t.timestamp)
         ORDER BY DATE(t.timestamp)
-    """, (st.session_state.user_id, st.session_state.user_id))
+    """, (st.session_state.user_id, st.session_state.user_id, st.session_state.user_id, st.session_state.user_id, st.session_state.user_id, st.session_state.user_id))
     
     history_data = cursor.fetchall()
     
@@ -603,6 +628,14 @@ elif choice == "My Transactions" and st.session_state.user_id:
 elif choice == "Make Transaction" and st.session_state.user_id:
     st.title("Send Transaction")
     
+    # Initialize session states for wallet selection if not exist
+    if "receiver_username" not in st.session_state:
+        st.session_state.receiver_username = ""
+    if "send_to_self" not in st.session_state:
+        st.session_state.send_to_self = False
+    if "transaction_submitted" not in st.session_state:
+        st.session_state.transaction_submitted = False
+    
     # Get sender's wallets
     cursor.execute("""
         SELECT w.wallet_id, w.balance 
@@ -615,72 +648,159 @@ elif choice == "Make Transaction" and st.session_state.user_id:
     if not sender_wallets:
         st.error("You don't have any wallets. Please contact support.")
     else:
-        with st.form("transaction_form"):
-            # Get user's name
-            cursor.execute("SELECT name FROM Users WHERE user_id = %s", (st.session_state.user_id,))
-            user = cursor.fetchone()
-            
-            # Set sender details
-            sender_name = user['name']
+        # Get user's name
+        cursor.execute("SELECT name FROM Users WHERE user_id = %s", (st.session_state.user_id,))
+        user = cursor.fetchone()
+        sender_name = user['name']
+        
+        # Create two sections - first for recipient selection, then for transaction details
+        st.markdown("### Step 1: Select Source and Destination")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
             st.markdown(f"**Sender:** {sender_name}")
             
             # Select wallet if multiple
             if len(sender_wallets) > 1:
                 wallet_options = {f"Wallet #{w['wallet_id']} (Balance: ${w['balance']:.2f})": w['wallet_id'] for w in sender_wallets}
-                selected_wallet = st.selectbox("Select Source Wallet", list(wallet_options.keys()))
-                wallet_id = wallet_options[selected_wallet]
+                selected_wallet_key = st.selectbox("Select Source Wallet", list(wallet_options.keys()))
+                wallet_id = wallet_options[selected_wallet_key]
                 current_balance = next(w['balance'] for w in sender_wallets if w['wallet_id'] == wallet_id)
             else:
                 wallet_id = sender_wallets[0]['wallet_id']
                 current_balance = sender_wallets[0]['balance']
                 st.markdown(f"**Source Wallet:** Wallet #{wallet_id} (Balance: ${current_balance:.2f})")
+        
+        with col2:
+            # Add option to send to own wallet
+            st.session_state.send_to_self = st.checkbox("Send to my own wallet", value=st.session_state.send_to_self)
             
-            # Receiver details
-            receiver_username = st.text_input("Recipient Username")
-            
-            # Amount with validation
-            amount = st.number_input("Amount", min_value=0.01, max_value=float(current_balance), format="%.2f")
-            
-            # Add a memo/note to the transaction
-            memo = st.text_input("Memo (Optional)", max_chars=100)
-            
-            submit = st.form_submit_button("Send Transaction")
-            
-            if submit:
-                if not receiver_username:
-                    st.error("Please enter a recipient username")
-                elif amount <= 0:
-                    st.error("Amount must be greater than 0")
-                elif amount > current_balance:
-                    st.error("Insufficient balance")
+            if st.session_state.send_to_self:
+                # Get user's other wallets (exclude the selected source wallet)
+                other_wallets = [w for w in sender_wallets if w['wallet_id'] != wallet_id]
+                
+                if not other_wallets:
+                    st.error("You don't have any other wallets to send to. Please create another wallet first.")
+                    receiver_wallet_id = None
                 else:
+                    receiver_wallet_options = {f"Wallet #{w['wallet_id']} (Balance: ${w['balance']:.2f})": w['wallet_id'] for w in other_wallets}
+                    selected_receiver_wallet_key = st.selectbox("Select Destination Wallet", list(receiver_wallet_options.keys()))
+                    receiver_wallet_id = receiver_wallet_options[selected_receiver_wallet_key]
+                    receiver_username = sender_name  # Same as sender
+            else:
+                # Receiver details
+                receiver_username = st.text_input("Recipient Username", value=st.session_state.receiver_username)
+                st.session_state.receiver_username = receiver_username
+                
+                receiver_wallet_id = None  # Initialize as None
+                if receiver_username:
                     # Verify receiver exists
                     cursor.execute("SELECT user_id FROM Users WHERE name = %s", (receiver_username,))
                     receiver = cursor.fetchone()
                     
-                    if not receiver:
-                        st.error("Recipient not found")
-                    elif receiver['user_id'] == st.session_state.user_id:
-                        st.error("You cannot send to yourself")
+                    if receiver:
+                        if receiver['user_id'] == st.session_state.user_id:
+                            st.warning("This is your own username. Consider using the 'Send to my own wallet' option instead.")
+                        
+                        # Get receiver's wallets
+                        cursor.execute("""
+                            SELECT wallet_id, balance 
+                            FROM Wallets 
+                            WHERE user_id = %s
+                        """, (receiver['user_id'],))
+                        
+                        receiver_wallets = cursor.fetchall()
+                        
+                        if receiver_wallets:
+                            # Let user select which wallet to send to
+                            receiver_wallet_options = {f"Wallet #{w['wallet_id']} (Balance: ${w['balance']:.2f})": w['wallet_id'] for w in receiver_wallets}
+                            selected_receiver_wallet_key = st.selectbox("Select Recipient's Wallet", list(receiver_wallet_options.keys()))
+                            receiver_wallet_id = receiver_wallet_options[selected_receiver_wallet_key]
+                        else:
+                            st.error("Recipient does not have any wallets")
                     else:
+                        st.error("Recipient not found")
+        
+        st.markdown("---")
+        st.markdown("### Step 2: Transaction Details")
+        
+        # Now create the form for the actual transaction
+        with st.form("transaction_form"):
+            # Start with 0 instead of 0.01
+            amount = st.number_input("Amount", min_value=0.00, max_value=float(current_balance), value=0.00, format="%.2f")
+            memo = st.text_input("Memo (Optional)", max_chars=100)
+            
+            # Hidden fields to store the selected wallet IDs
+            st.markdown(f"From Wallet #{wallet_id} to {'your own ' if st.session_state.send_to_self else ''}Wallet #{receiver_wallet_id if receiver_wallet_id else 'unknown'}")
+            
+            # Add a confirmation checkbox
+            confirm_transaction = st.checkbox("I confirm this transaction is correct")
+            
+            submit = st.form_submit_button("Send Transaction")
+            
+            if submit:
+                if not receiver_wallet_id:
+                    st.error("Please select a valid recipient wallet")
+                elif amount <= 0:
+                    st.error("Amount must be greater than 0")
+                elif amount > current_balance:
+                    st.error("Insufficient balance")
+                elif not confirm_transaction:
+                    st.error("Please confirm your transaction before sending")
+                else:
+                    st.session_state.transaction_submitted = True
+                    try:
+                        # Use individual statements with proper transaction management
                         try:
-                            # Get receiver's wallet
-                            cursor.execute("SELECT wallet_id FROM Wallets WHERE user_id = %s LIMIT 1", (receiver['user_id'],))
-                            receiver_wallet = cursor.fetchone()
+                            # Start transaction
+                            conn.autocommit = False
                             
-                            if not receiver_wallet:
-                                st.error("Recipient does not have a wallet")
+                            # Generate transaction hash
+                            tx_hash = hashlib.sha256(f"{wallet_id}{receiver_wallet_id}{amount}{time.time()}".encode()).hexdigest()
+                            
+                            # Deduct from sender wallet
+                            cursor.execute("UPDATE Wallets SET balance = balance - %s WHERE wallet_id = %s", 
+                                          (amount, wallet_id))
+                            
+                            # Add to receiver wallet
+                            cursor.execute("UPDATE Wallets SET balance = balance + %s WHERE wallet_id = %s", 
+                                          (amount, receiver_wallet_id))
+                            
+                            # Create transaction record
+                            cursor.execute("""
+                                INSERT INTO Transactions 
+                                (transaction_hash, sender_wallet_id, receiver_wallet_id, amount, memo) 
+                                VALUES (%s, %s, %s, %s, %s)
+                            """, (tx_hash, wallet_id, receiver_wallet_id, amount, memo))
+                            
+                            # Commit transaction
+                            conn.commit()
+                            
+                            # In Make Transaction section, modify the confirmation message:
+                            recipient_display = sender_name if st.session_state.send_to_self else receiver_username
+                            if st.session_state.send_to_self:
+                                st.success(f"Successfully transferred ${amount:.2f} between your wallets (Wallet #{wallet_id} → Wallet #{receiver_wallet_id})")
                             else:
-                                # Process transaction
-                                cursor.execute("CALL make_transaction(%s, %s, %s)", (sender_name, receiver_username, amount))
-                                conn.commit()
-                                
-                                st.success(f"Successfully sent ${amount:.2f} to {receiver_username}")
-                                
-                                # Show animation of successful transaction
-                                st.balloons()
+                                st.success(f"Successfully sent ${amount:.2f} to {recipient_display}'s Wallet #{receiver_wallet_id}")
+                            
+                            # Show animation of successful transaction
+                            st.balloons()
+                            
                         except Exception as e:
-                            st.error(f"Transaction failed: {e}")
+                            # Rollback on error
+                            conn.rollback()
+                            raise e
+                        finally:
+                            # Reset autocommit
+                            conn.autocommit = True
+                            
+                    except Exception as e:
+                        st.error(f"Transaction failed: {e}")
+                        
+        # Add a separate transaction confirmation area
+        if st.session_state.transaction_submitted:
+            st.session_state.transaction_submitted = False  # Reset after displaying
 
 # MY WALLETS PAGE
 elif choice == "My Wallets" and st.session_state.user_id:
