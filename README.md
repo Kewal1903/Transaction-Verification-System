@@ -38,5 +38,4 @@ The project will establish a tamper-proof transaction ledger within a relational
 The integration of hashing, block referencing, and automatic validation through stored procedures and triggers will ensure that transactions remain secure, verifiable, and immutable over time.
 •
 Future enhancements could include automated auditing mechanisms, Merkle tree-based indexing for faster lookups, and dynamic difficulty adjustment to improve transaction verification efficiency.
-•
-The system will be developed using MySQL, PL/SQL and DBMS_CRYPTO for cryptographic operations, ensuring a robust and efficient transaction management framework within the database.
+
