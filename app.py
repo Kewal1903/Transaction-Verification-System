@@ -13,7 +13,7 @@ import re
 
 # Page config with favicon and expanded layout
 st.set_page_config(
-    page_title="BlockChain Explorer",
+    page_title="Decentralized Transaction Verification System",
     page_icon="💎",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -133,7 +133,7 @@ def get_blockchain_stats():
 
 # Sidebar for navigation
 with st.sidebar:
-    st.title("BlockChain Explorer")
+    st.title("Decentralized Transaction Verification System")
     
     st.markdown("---")
     
@@ -170,7 +170,7 @@ with st.sidebar:
         st.markdown(f"**Transaction Volume:** ${stats['volume']:,.2f}")
     
     st.markdown("---")
-    st.markdown("<div class='footer'>© 2025 Blockchain Explorer</div>", unsafe_allow_html=True)
+    st.markdown("<div class='footer'>© Decentralized Transaction Verification System</div>", unsafe_allow_html=True)
 
 # Display notification if exists
 if st.session_state.notification:
@@ -179,7 +179,7 @@ if st.session_state.notification:
 
 # HOME PAGE
 if choice == "Home":
-    st.title("Welcome to Blockchain Explorer")
+    st.title("Welcome to the Decentralized Transaction Verification System")
     
     col1, col2 = st.columns([2, 1])
     
@@ -837,7 +837,7 @@ elif choice == "My Wallets" and st.session_state.user_id:
 
 # BLOCK EXPLORER PAGE
 elif choice == "Block Explorer" and st.session_state.user_id:
-    st.title("Block Explorer")
+    st.title("Block ")
     
     # Block navigation
     col1, col2 = st.columns([1, 3])
@@ -1101,7 +1101,7 @@ elif choice == "Logout":
 
 # Handle Footer
 st.markdown("---")
-st.markdown("<div class='footer'>© 2025 Blockchain Explorer | Terms of Service | Privacy Policy</div>", unsafe_allow_html=True)
+st.markdown("<div class='footer'>© Decentralized Transaction Verification System | DBS Team A15 </div>", unsafe_allow_html=True)
 
 # Close DB connection when app is done
 conn.close()
