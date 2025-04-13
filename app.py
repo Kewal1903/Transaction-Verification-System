@@ -264,13 +264,6 @@ if choice == "Home":
             latest_time = latest['timestamp']
             st.markdown(f"<div class='metric-label'>Latest block: {latest_time}</div>", unsafe_allow_html=True)
         
-        st.markdown("""
-        <div class="card">
-            <h3>Network Difficulty</h3>
-            <div class='metric-value'>0000</div>
-            <div class='metric-label'>Current target difficulty</div>
-        </div>
-        """, unsafe_allow_html=True)
 
 # LOGIN PAGE
 elif choice == "Login":
@@ -758,14 +751,6 @@ elif choice == "Make Transaction" and st.session_state.user_id:
                             
                             # Generate transaction hash
                             tx_hash = hashlib.sha256(f"{wallet_id}{receiver_wallet_id}{amount}{time.time()}".encode()).hexdigest()
-                            
-                            # Deduct from sender wallet
-                            cursor.execute("UPDATE Wallets SET balance = balance - %s WHERE wallet_id = %s", 
-                                          (amount, wallet_id))
-                            
-                            # Add to receiver wallet
-                            cursor.execute("UPDATE Wallets SET balance = balance + %s WHERE wallet_id = %s", 
-                                          (amount, receiver_wallet_id))
                             
                             # Create transaction record
                             cursor.execute("""
