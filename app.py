@@ -30,18 +30,20 @@ st.markdown("""
         padding-bottom: 1rem;
     }
     .stButton>button {
-        background-color: #4CAF50;
-        color: grey;
+        background-color: white;
+        color: black;
         border-radius: 8px;
         border: none;
         padding: 0.5rem 1rem;
         font-weight: bold;
     }
     .stButton>button:hover {
-        background-color: #45a049;
+        background-color: #00FFFF;
+        color : black;
     }
     .card {
-        background-color: grey;
+        background-color: #00FFFF;
+        color : black;
         border-radius: 10px;
         padding: 1.5rem;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -65,21 +67,6 @@ st.markdown("""
         padding: 1rem;
         font-size: 0.8rem;
         color: black;
-    }
-    /* Dark mode styles will be toggled via JavaScript */
-    .dark-mode {
-        background-color: #1e1e1e;
-        color: #e0e0e0;
-    }
-    .dark-mode .card {
-        background-color: #2d2d2d;
-        color: #e0e0e0;
-    }
-    .dark-mode .metric-value {
-        color: #e0e0e0;
-    }
-    .dark-mode .metric-label {
-        color: #b0b0b0;
     }
 </style>
 """, unsafe_allow_html=True)
