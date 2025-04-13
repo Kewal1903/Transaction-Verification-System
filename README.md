@@ -13,7 +13,7 @@ The Users table will store details such as user_id, name, and email.
 o
 The Wallets table will maintain wallet_id, user_id, and balance, ensuring proper account tracking.
 o
-The Transactions table will record transaction_id, sender_wallet_id, receiver_wallet_id, amount, and timestamp, ensuring a structured ledger of all financial activities. Each transaction will also be cryptographically hashed with an SHA-256 cryptographic hash generated using DBMS_CRYPTO functions.
+The Transactions table will record transaction_id, sender_wallet_id, receiver_wallet_id, amount, and timestamp, ensuring a structured ledger of all financial activities. Each transaction will also be cryptographically hashed with an SHA-256 cryptographic hash generated using SHA2 functions.
 o
 The Blocks table will store block_id, previous_block_hash, nonce, and timestamp, linking transactions in a sequential manner to enforce immutability.
 •
